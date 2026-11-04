@@ -1,0 +1,61 @@
+name: Claude Issue Triage
+
+on:
+  issues:
+    types: [opened, edited]
+
+concurrency:
+  group: triage-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  triage:
+    # Skip bot-originated events to avoid loops.
+    if: github.event.sender.type != 'Bot'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Triage issue with Claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            ISSUE NUMBER: ${{ github.event.issue.number }}
+            EVENT ACTION: ${{ github.event.action }}
+
+            You are triaging a GitHub issue for a vanilla JS Tetris game. Do the following:
+
+            1. Read the issue with `gh issue view ${{ github.event.issue.number }}` and list the
+               repository labels with `gh label list`.
+            2. Read CLAUDE.md, then explore the relevant code (game.js, index.html, style.css)
+               to understand the likely cause or the affected area.
+            3. Labels: apply the most appropriate labels with `gh issue edit --add-label`.
+               Use ONLY labels that already exist in the repository; never create new labels.
+               If EVENT ACTION is "edited", also remove labels you previously applied that no
+               longer fit (only labels from the existing repository set).
+            4. Diagnosis comment: write it in Spanish. It MUST start with the hidden marker
+               `<!-- claude-triage -->` on the first line, followed by these sections:
+               - Resumen
+               - Tipo y labels aplicados
+               - Análisis (likely cause, files/functions involved, with file:line references)
+               - Propuesta de solución (concrete steps, no code)
+               - Riesgos / casos borde
+               - Preguntas abiertas (only if information is missing)
+            5. If EVENT ACTION is "edited", first look for an existing comment that contains
+               `<!-- claude-triage -->` using
+               `gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments`.
+               If found, update it with
+               `gh api -X PATCH repos/${{ github.repository }}/issues/comments/<comment_id> -f body=...`
+               instead of posting a new one. Otherwise, post a new comment with `gh issue comment`.
+            6. Do NOT modify any code, create branches, or open pull requests.
+          claude_args: |
+            --allowed-tools "Bash(gh issue view:*),Bash(gh issue edit:*),Bash(gh issue comment:*),Bash(gh label list:*),Bash(gh api:*),Read,Glob,Grep"
